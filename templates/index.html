@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Comparison</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded shadow">
+        <h1 class="text-2xl font-bold mb-4">File Comparison</h1>
+        <form id="uploadForm" class="mb-4">
+            <div class="mb-4">
+                <label for="files" class="block mb-2">Select files (images or PDFs):</label>
+                <input type="file" id="files" name="files[]" accept="image/*,.pdf" multiple required class="w-full p-2 border rounded">
+            </div>
+            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Compare Files</button>
+        </form>
+        <div id="progress" class="hidden mb-4">
+            <h2 class="text-xl font-semibold mb-2">Progress:</h2>
+            <div class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+                <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+            </div>
+            <p class="mt-2"><span id="progressStep"></span> - <span id="progressPercentage">0%</span></p>
+            <p>Estimated time left: <span id="estimatedTime">Calculating...</span></p>
+        </div>
+        <div id="results" class="hidden">
+            <h2 class="text-xl font-semibold mb-2">Results:</h2>
+            <div id="fileResults" class="grid grid-cols-2 gap-4 mb-4">
+                <!-- File results will be inserted here -->
+            </div>
+            <h3 class="text-lg font-semibold mb-2">Comparisons:</h3>
+            <div id="comparisons" class="mb-4">
+                <!-- Comparison results will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let startTime;
+        let totalSteps = 100; // We'll use the backend's progress directly
+
+        function updateProgress(data) {
+            document.getElementById('progress').classList.remove('hidden');
+            document.getElementById('progressStep').textContent = data.step;
+            document.getElementById('progressPercentage').textContent = `${data.progress}%`;
+            document.getElementById('progressBar').style.width = `${data.progress}%`;
+
+            if (!startTime) {
+                startTime = Date.now();
+            }
+
+            const elapsedTime = (Date.now() - startTime) / 1000; // in seconds
+            const estimatedTotalTime = (elapsedTime / data.progress) * 100;
+            const remainingTime = estimatedTotalTime - elapsedTime;
+
+            document.getElementById('estimatedTime').textContent = `${Math.round(remainingTime)} seconds`;
+
+            if (data.step === 'Completed') {
+                displayResults(data.result);
+            }
+        }
+
+        function displayResults(data) {
+            document.getElementById('progress').classList.add('hidden');
+            document.getElementById('results').classList.remove('hidden');
+            
+            const fileResults = document.getElementById('fileResults');
+            fileResults.innerHTML = '';
+            data.files.forEach((file, index) => {
+                const fileDiv = document.createElement('div');
+                fileDiv.innerHTML = `
+                    <h3 class="font-semibold mb-1">File ${index + 1}: ${file.name}</h3>
+                    ${file.name.toLowerCase().endsWith('.pdf') ? 
+                        `<p>PDF file (preview not available)</p>` :
+                        `<img src="data:image/jpeg;base64,${file.content}" class="w-full mb-2" alt="${file.name}">`
+                    }
+                    <p><strong>Extracted Text:</strong> ${data.texts[index].substring(0, 200)}${data.texts[index].length > 200 ? '...' : ''}</p>
+                `;
+                fileResults.appendChild(fileDiv);
+            });
+            
+            const comparisons = document.getElementById('comparisons');
+            comparisons.innerHTML = '';
+            data.comparisons.forEach(comparison => {
+                const comparisonP = document.createElement('p');
+                comparisonP.textContent = `${comparison.file1} vs ${comparison.file2}: ${comparison.similarity} similar`;
+                comparisons.appendChild(comparisonP);
+            });
+        }
+
+        function checkProgress(taskId) {
+            fetch(`/progress/${taskId}`)
+                .then(response => response.json())
+                .then(data => {
+                    updateProgress(data);
+                    if (data.step !== 'Completed') {
+                        setTimeout(() => checkProgress(taskId), 500);
+                    }
+                });
+        }
+
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            startTime = null;
+            
+            const formData = new FormData(e.target);
+            
+            const response = await fetch('/compare', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (data.task_id) {
+                checkProgress(data.task_id);
+            } else {
+                alert('An error occurred while uploading the files.');
+            }
+        });
+    </script>
+</body>
+</html>
